@@ -1,13 +1,18 @@
 "use client";
 
+/**
+ * SECURITY: Client component receives only computed outputs from server actions.
+ * No reasoning logic, weights, or scoring functions are exposed to the client.
+ */
+
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import {
-  buildExplainability,
-  buildTutorInsight,
+  computeExplainability,
+  computeTutorInsight,
   DECISION_POLICY_VERSION,
   type LessonStyle,
-} from "@/lib/explain";
+} from "@/lib/actions";
 
 function ResultPageInner() {
   const params = useSearchParams();
@@ -33,17 +38,40 @@ if (preScore > 70) preScore = 70;
   const postScore = 70;
   const delta = postScore - preScore;
 
-  // ---- Deterministic explainable adaptation engine ----
-  const explainInput = {
-    topic,
-    priorKnowledge: knowledge,
-    confidence,
-    delta,
-    startingStyle: style,
-  } as const;
+  // ---- Server-side reasoning: client receives only computed outputs ----
+  const [explainability, setExplainability] = useState<{
+    decision: string;
+    nextStyle: LessonStyle;
+    reasons: string[];
+    decisionTrace: string;
+  } | null>(null);
+  const [tutorMessage, setTutorMessage] = useState<string>("");
 
-  const explainability = buildExplainability(explainInput);
-  const tutorMessage = buildTutorInsight(explainInput);
+  useEffect(() => {
+    const explainInput = {
+      topic,
+      priorKnowledge: knowledge,
+      confidence,
+      delta,
+      startingStyle: style,
+    };
+
+    Promise.all([
+      computeExplainability(explainInput),
+      computeTutorInsight(explainInput),
+    ]).then(([exp, tutor]) => {
+      setExplainability(exp);
+      setTutorMessage(tutor);
+    });
+  }, [topic, knowledge, confidence, delta, style]);
+
+  if (!explainability) {
+    return (
+      <main className="min-h-screen bg-black text-white p-10">
+        <p className="text-gray-400">Computing reasoning...</p>
+      </main>
+    );
+  }
 
   const decision = explainability.decision;
   const nextStyle = explainability.nextStyle;

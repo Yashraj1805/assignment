@@ -1,3 +1,19 @@
+/**
+ * SECURITY: Server-only reasoning engine.
+ *
+ * This module contains all decision logic, weights, and scoring functions.
+ * It MUST NOT be imported by client components. Use lib/actions.ts instead.
+ *
+ * Protected elements:
+ * - Weighted scoring algorithm (weights, normalization functions)
+ * - Confidence calibration logic
+ * - Knowledge signal detection patterns
+ * - Decision tie-breaking rules
+ *
+ * This file is server-only because it's only imported by lib/actions.ts (which has "use server").
+ * Next.js will tree-shake this from client bundles automatically.
+ */
+
 export type LessonStyle = "text" | "visual" | "quiz";
 
 // Decision policy identifier shown in the UI for auditability and iteration.
