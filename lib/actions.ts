@@ -16,12 +16,10 @@
 import {
   buildExplainability,
   buildTutorInsight,
-  DECISION_POLICY_VERSION,
   type ExplainInput,
-  type LessonStyle,
 } from "./explain";
 
-export { DECISION_POLICY_VERSION, type LessonStyle };
+import type { LessonStyle } from "./shared";
 
 /**
  * Server action: compute explainability output from user signals.

@@ -14,10 +14,7 @@
  * Next.js will tree-shake this from client bundles automatically.
  */
 
-export type LessonStyle = "text" | "visual" | "quiz";
-
-// Decision policy identifier shown in the UI for auditability and iteration.
-export const DECISION_POLICY_VERSION = "v1.3.0 — confidence-weighted";
+import { DECISION_POLICY_VERSION, type LessonStyle } from "./shared";
 
 export type ExplainInput = {
   topic: string;
@@ -334,12 +331,20 @@ export function buildExplainability(
 export function buildTutorInsight(input: ExplainInput): string {
   const topic = normalize(input.topic) || "this topic";
   const conf = clamp(input.confidence, 1, 5);
-  const confBand = confidenceLabel(conf);
   const dBand = deltaBand(input.delta);
   const k = detectKnowledgeSignals(input.priorKnowledge);
   const styleDecision = decideNextStyle(input);
   const style = styleDecision.nextStyle;
   const calibration = detectCalibration(conf, input.delta);
+
+  const knowledgeTier: "unknown" | "beginner" | "intermediate" | "advanced" =
+    k.isEmpty
+      ? "unknown"
+      : k.mentionsAdvanced && !k.mentionsBeginner
+      ? "advanced"
+      : k.mentionsBeginner && !k.mentionsAdvanced
+      ? "beginner"
+      : "intermediate";
 
   const opener =
     dBand === "large"
@@ -348,26 +353,33 @@ export function buildTutorInsight(input: ExplainInput): string {
       ? `You’re building momentum on ${topic}.`
       : `You’re getting started on ${topic}, and the signals are useful already.`;
 
-  const knowledgeLine = k.isEmpty
-    ? `I didn’t get much detail on what you already know, so I’m going to confirm the basics first.`
-    : k.mentionsAdvanced && !k.mentionsBeginner
-    ? `Your prior knowledge suggests you already have a foundation (“${k.priorKnowledge}”). I can spend less time on definitions.`
-    : k.mentionsBeginner && !k.mentionsAdvanced
-    ? `Your prior knowledge suggests you’re early in the journey (“${k.priorKnowledge}”). I’ll make the first steps extra clear.`
-    : `Your prior knowledge sounds mixed (“${k.priorKnowledge}”), so I’ll keep explanations tight and use quick checks.`;
+  const knowledgeLine =
+    knowledgeTier === "unknown"
+      ? `Prior knowledge: I didn’t get much detail, so I’ll confirm the basics first.`
+      : knowledgeTier === "advanced"
+      ? `Prior knowledge: you seem advanced (“${k.priorKnowledge}”). I’ll skip definitions and focus on edge-cases + application.`
+      : knowledgeTier === "beginner"
+      ? `Prior knowledge: you seem beginner (“${k.priorKnowledge}”). I’ll go step-by-step with simple examples.`
+      : `Prior knowledge: you seem mixed (“${k.priorKnowledge}”). I’ll keep it concise and use quick checks to locate gaps.`;
 
   const confidenceLine =
-    confBand === "low"
-      ? `Based on your confidence (${conf}/5), I’ll add more guidance and smaller steps so nothing feels like a leap.`
-      : confBand === "medium"
-      ? `Based on your confidence (${conf}/5), we’ll keep a steady pace with checkpoints where confusion usually appears.`
-      : `Based on your confidence (${conf}/5), I’ll challenge you a bit sooner and use practice to lock it in.`;
+    conf === 1
+      ? `Confidence: ${conf}/5 (very low). We’ll go slowly, with lots of worked examples and “why” explanations.`
+      : conf === 2
+      ? `Confidence: ${conf}/5 (low). We’ll use smaller steps and frequent checks so you don’t get stuck.`
+      : conf === 3
+      ? `Confidence: ${conf}/5 (medium). We’ll keep a steady pace with checkpoints in common confusion spots.`
+      : conf === 4
+      ? `Confidence: ${conf}/5 (high). We’ll move faster and switch to practice sooner.`
+      : `Confidence: ${conf}/5 (very high). Expect challenge questions and fewer hints.`;
 
   const calibrationLine = calibration.isOverconfident
     ? `Calibration note: your confidence is high, but the learning delta is small. I’ll slow the ramp and make the model explicit before adding more practice.`
     : calibration.isUnderconfident
     ? `Calibration note: your confidence is low, but the learning delta is large. You’re performing stronger than you’re rating yourself—so we’ll introduce practice a bit earlier.`
     : `Calibration note: your confidence and learning delta appear aligned.`;
+
+  const profileLine = `Profile: knowledge=${knowledgeTier} • confidence=${conf}/5 • delta=+${input.delta} (${dBand}).`;
 
   const adaptationLine =
     style === "visual"
@@ -389,14 +401,53 @@ export function buildTutorInsight(input: ExplainInput): string {
       ? `Tip: as you watch the diagram, narrate each step out loud once. That’s where understanding becomes durable.`
       : `Tip: after each section, write a 1-line summary in your own words. That’s the quickest comprehension check.`;
 
+  const planLines: string[] = [];
+  // Step 1: pick an explanation depth based on knowledge + confidence.
+  if (knowledgeTier === "beginner") {
+    planLines.push(
+      conf <= 2
+        ? `Plan: start with 2–3 ultra-simple examples, then you do 1 guided example with hints.`
+        : `Plan: start with 1–2 simple examples, then you do 2 short practice checks.`
+    );
+  } else if (knowledgeTier === "advanced") {
+    planLines.push(
+      conf >= 4
+        ? `Plan: jump straight to challenge problems and edge-cases; we’ll only revisit basics if a miss repeats.`
+        : `Plan: do 1 compact refresher, then shift quickly into practice and targeted fixes.`
+    );
+  } else if (knowledgeTier === "intermediate") {
+    planLines.push(
+      conf <= 2
+        ? `Plan: do a quick refresher of the core model, then 2 small checks to rebuild confidence.`
+        : `Plan: do a quick recap, then practice with short checkpoints to find weak spots.`
+    );
+  } else {
+    planLines.push(
+      conf <= 2
+        ? `Plan: I’ll confirm basics with a few quick questions, then we’ll build up slowly.`
+        : `Plan: I’ll start with a short baseline check, then adapt depth based on what you get right.`
+    );
+  }
+
+  // Step 2: a concrete micro-task tuned by confidence.
+  planLines.push(
+    conf <= 2
+      ? `Micro-task: after each step, answer “what does this mean?” in 1 sentence (no pressure on speed).`
+      : conf === 3
+      ? `Micro-task: after each section, do 1 quick check question before moving on.`
+      : `Micro-task: do 3 rapid-fire checks; if you miss one, explain the mistake in 1 sentence and continue.`
+  );
+
   const close = nextStepPreview(style, topic);
 
   return [
     opener,
+    profileLine,
     knowledgeLine,
     confidenceLine,
     calibrationLine,
     adaptationLine,
+    ...planLines,
     nudge,
     close,
   ].join("\n");

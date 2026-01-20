@@ -10,9 +10,8 @@ import { Suspense, useEffect, useState } from "react";
 import {
   computeExplainability,
   computeTutorInsight,
-  DECISION_POLICY_VERSION,
-  type LessonStyle,
 } from "@/lib/actions";
+import { DECISION_POLICY_VERSION, type LessonStyle } from "@/lib/shared";
 
 function ResultPageInner() {
   const params = useSearchParams();
